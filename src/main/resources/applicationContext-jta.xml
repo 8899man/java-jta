@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context" xmlns:tx="http://www.springframework.org/schema/tx"
+       xmlns:aop="http://www.springframework.org/schema/aop"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx.xsd http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop.xsd">
+
+    <!--加载配置文件-->
+    <context:property-placeholder location="classpath*:data.properties" ignore-unresolvable="true" />
+
+    <!--配置参数-->
+    <bean id="poolXADataSource" class="com.atomikos.jdbc.AtomikosDataSourceBean" init-method="init"
+          destroy-method="close" abstract="true">
+        <property name="xaDataSourceClassName" value="com.mysql.jdbc.jdbc2.optional.MysqlXADataSource"/>
+        <property name="poolSize" value="1" />
+        <property name="minPoolSize" value="1"/>
+        <property name="maxPoolSize" value="50"/>
+        <property name="borrowConnectionTimeout" value="50"/>
+        <property name="reapTimeout" value="20"/>
+        <property name="maxIdleTime" value="60"/>
+        <property name="maintenanceInterval" value="60" />
+        <property name="loginTimeout" value="60" />
+        <property name="logWriter" value="60"/>
+        <property name="testQuery" value="select 1"/>
+    </bean>
+
+    <!--主节点配置-->
+    <bean id="masterDataSource" parent="poolXADataSource" init-method="init" destroy-method="close">
+        <description>master</description>
+        <property name="uniqueResourceName" value="masterDataSource"/>
+        <property name="xaDataSourceClassName" value="com.mysql.jdbc.jdbc2.optional.MysqlXADataSource" />
+        <property name="xaProperties">
+            <props>
+                <prop key="user">${master.account}</prop>
+                <prop key="password">${master.password}</prop>
+                <prop key="URL">${master.url}</prop>
+            </props>
+        </property>
+    </bean>
+
+    <!--从节点配置-->
+    <bean id="slaveDataSource" parent="poolXADataSource" init-method="init" destroy-method="close">
+        <description>slave</description>
+        <property name="uniqueResourceName" value="slaveDataSource"/>
+        <property name="xaDataSourceClassName" value="com.mysql.jdbc.jdbc2.optional.MysqlXADataSource" />
+        <property name="xaProperties">
+            <props>
+                <prop key="user">${slave.account}</prop>
+                <prop key="password">${slave.password}</prop>
+                <prop key="URL">${slave.url}</prop>
+            </props>
+        </property>
+    </bean>
+
+    <!--master模板-->
+    <bean id="masterJdbcTemplate" class="org.springframework.jdbc.core.JdbcTemplate">
+        <constructor-arg ref="masterDataSource"/>
+    </bean>
+
+    <!--slave模板-->
+    <bean id="slaveJdbcTemplate" class="org.springframework.jdbc.core.JdbcTemplate">
+        <constructor-arg ref="slaveDataSource"/>
+    </bean>
+
+    <!--事务管理器-->
+    <bean id="userTransactionManager" class="com.atomikos.icatch.jta.UserTransactionManager"
+          init-method="init" destroy-method="close">
+        <description>UserTransactionManager</description>
+        <property name="forceShutdown" value="true"/>
+    </bean>
+
+    <!--用户事务实现-->
+    <bean id="userTransactionImp" class="com.atomikos.icatch.jta.UserTransactionImp">
+        <property name="transactionTimeout" value="300" />
+    </bean>
+
+    <!--第一种方式-->
+    <!--spring事务管理器，编程式事务实例对象-->
+    <bean id="jtaTransactionManager" class="org.springframework.transaction.jta.JtaTransactionManager">
+        <!--注入事务管理器 -->
+        <property name="transactionManager" ref="userTransactionManager"/>
+        <!--注入事务实现 -->
+        <property name="userTransaction" ref="userTransactionImp"/>
+    </bean>
+
+    <!--第二种方式-->
+    <!--spring模板事务，模版式事务实例对象-->
+    <bean id="transactionTemplate"  class="org.springframework.transaction.support.TransactionTemplate">
+        <property name="transactionManager" ref="jtaTransactionManager"/>
+    </bean>
+
+    <!--第三种方式-->
+    <!--spring注解事务，注解式事务实例对象-->
+    <tx:annotation-driven transaction-manager="jtaTransactionManager"/>
+
+    <!--第四种方式-->
+    <!--拦截器方式配置事务-->
+    <tx:advice id="txAdvice" transaction-manager="jtaTransactionManager">
+        <tx:attributes>
+            <tx:method name="save*" />
+            <tx:method name="update*" />
+            <tx:method name="delete*" />
+            <tx:method name="find*" propagation="SUPPORTS" />
+            <tx:method name="*" propagation="SUPPORTS" />
+        </tx:attributes>
+    </tx:advice>
+
+    <!--拦截器扫包-->
+    <aop:config>
+        <aop:pointcut id="transactionPointcut" expression="execution(* com.test.service..*Impl.*(..))" />
+        <aop:advisor pointcut-ref="transactionPointcut" advice-ref="txAdvice" />
+    </aop:config>
+
+</beans>
