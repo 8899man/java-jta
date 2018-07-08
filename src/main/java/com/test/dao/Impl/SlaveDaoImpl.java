@@ -15,7 +15,7 @@ public class SlaveDaoImpl implements ISlaveDao{
         //错误跳出
         //Integer error = 1/0;
         slaveJdbcTemplate.execute("INSERT slave(`price`)VALUES("+slave.getPrice()+")");
-        return null;
+        return 1;
     }
 
     @Override
